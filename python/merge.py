@@ -1,134 +1,162 @@
-# keep 99 cities with air quality and wind direction data
+# Objective: merging 3 data set quosoft x surf x gsod
+# last update feb 23 2024
+
+## First obtain 2016-2021 quosoft data, then reshape wide df. 
+from datetime import datetime, timedelta
 import pandas as pd
-from pypinyin import pinyin, lazy_pinyin, Style
-quosoft = pd.read_csv('/Users/tli/Downloads/ecommerce/data/raw/long_quosoft_air_quality.csv')
-city99 = pd.read_stata('/Users/tli/Downloads/ecommerce/data/raw/sample_daily16_17.dta')
+import requests
+import os
+
+# menu: first obtain a list of dates in txt format, for downloading at quotsoft
+# reshape quotsoft df=> merge with baiduindex for the 200 cities we wanted
+# output name baiducity_airquality
+
+# Initialize an empty list to store the generated URLs
+date_list = []
+
+# Loop obtain all dates in month 10-11 for year 2016-21
+for year in range(2016, 2021 + 1): #range +1 as for loop is [begin,end)
+    start_date = datetime(year, 1, 1)  # October 1st of the current year
+    end_date = datetime(year, 12, 31)   # November 30th of the current year
+
+# Generate dates and replace [日期] in the URL
+now = start_date
+while now <= end_date:
+    formatted_date = now.strftime('%Y%m%d')
+    url = f'https://quotsoft.net/air/data/china_cities_{formatted_date}.csv'
+    date_list.append(url)
+    now += timedelta(days=1)
+
+# Specify the full path for the output file
+# touch '/Users/tli/Downloads/ecommerce/data/raw/quosoft/quosoft_dates_1621_jandec.txt'
+txt_for_datelist = '/Users/tli/Downloads/ecommerce/data/raw/quosoft/quosoft_dates_1621_jandec.txt'
+
+# Export the list of URLs into the text file
+with open(txt_for_datelist, 'w') as file: 
+    # Opens the file in write mode ('w'). If the file doesn't exist, it will be created. If it already exists, its content will be overwritten.
+    for url in date_list:
+        file.write(url + '\n') #Writes each URL followed by a newline character to the file.
+
+# now download all csv for each individual date：
+# Read URLs from the file
+with open('/Users/tli/Downloads/ecommerce/data/raw/quosoft/quosoft_dates_1621_jandec.txt', "r") as file:
+    urls = file.read().splitlines()
+
+for url in urls:
+    response = requests.get(url)
+    if response.status_code == 200:
+        # Construct the full path to save the file in the 'quosoft' folder
+        filename = os.path.join('/Users/tli/Downloads/ecommerce/data/raw/quosoft/', url.split("/")[-1])
+        with open(filename, 'wb') as file:
+            file.write(response.content)
+    else:
+        print(f"Failed to download {url}")
+
+print(f"all done.")
+
+## appending csv files:
+csv_path= '/Users/tli/Downloads/ecommerce/data/raw/quosoft/'
+quosoft_df = []
+
+for filename in os.listdir(csv_path): #This code uses os.listdir() to retrieve a list of filenames in the csv_directory 
+    if filename.endswith('.csv'): #, it checks if the current filename ends with ".csv". This condition ensures that only CSV files are processed.
+        file_path = os.path.join(csv_path, filename)
+        # Read each CSV file into a DataFrame and append it to the list
+        quosoft_each_year = pd.read_csv(file_path)
+        quosoft_df.append(quosoft_each_year)
+
+df = pd.concat(quosoft_df, ignore_index=True)
+df.to_csv('/Users/tli/Downloads/ecommerce/data/raw/2.quosoft_long_1621_jandec.csv', index=False)
+
+## now we reshape the file: 
+# Define the columns to keep as is (identifiers)
+identifiers = ['date', 'hour', 'type'] #by identifiers, reshape the df
+short_df = pd.melt(df, id_vars=identifiers, var_name='cityname', value_name='value')
+
+short_df.head() # san check 
+
+# i want to have type on the x as wide variables
+pivoted_df = short_df.pivot(index=['date', 'hour', 'cityname'], columns='type', values='value')
+
+# i obtain the daily ave. 
+daily_ave_df = pivoted_df.groupby(['date', 'cityname']).mean().reset_index()
+set(daily_ave_df['cityname'].unique())
+
+# preserving 99 cities: 
+city99 = pd.read_stata('/Users/tli/Downloads/ecommerce/data/raw/dailyCongestion2016PinyinCN.dta')
+
+# caveat: we have replace 伊犁哈萨克州 from quosoft to be 伊犁
+daily_ave_df['cityname'].replace('伊犁哈萨克州', '伊犁', inplace=True)
+
+# now we merge
+quosoft99 = daily_ave_df[daily_ave_df['cityname'].isin(city99['city'])]
+quosoft99['cityname'].nunique()
+
+# exporting the data
+quosoft99.to_csv('/Users/tli/Downloads/ecommerce/data/processed/5.final_quosoft99.csv', index=False)
+
+## Merging with gsod:
 gsod = pd.read_csv('/Users/tli/Downloads/ecommerce/data/processed/3.sodCityDaily.csv')
 
-# first merge with quosoft:
-# since we have only saved the long quosoft, we have to reshape it before merging 
-identifiers = ['date', 'hour', 'type'] #by identifiers, reshape the df
-short_df = pd.melt(quosoft, id_vars=identifiers, var_name='cityname', value_name='value')
-
-# obtain year month date for quosoft to merge with city99
-short_df['date'] = pd.to_datetime(short_df['date'], format='%Y%m%d')
-
-short_df['year'] = short_df['date'].dt.year
-short_df['month'] = short_df['date'].dt.month
-short_df['day'] = short_df['date'].dt.day
-
-short_df1617 = short_df[(short_df['year'] == 2016) | (short_df['year'] == 2017)]
-
-## converting citynames: 
-pinyincityname = []
-for i in short_df1617['cityname']:
-    result = pinyin(i, style=Style.TONE3)
-    result_ = [j[0] for j in result]
-    result2 = ''.join(result_)
-    print(result2, i)
-    pinyincityname.append(result2)
-short_df1617['pinyinname']= pinyincityname
-short_df1617['pinyinname'].head()
-
-# save 
-short_df1617.to_csv("/Users/tli/Downloads/ecommerce/data/processed/5.clean_quosoft.csv")
-# first merge to filter 99 cities: 
-quosoft99 = pd.merge(short_df1617, city99,on=['pinyinname','year','month','day'],how="inner")
-quosoft99['pinyinname'].nunique() #91 cities left
-quosoft99.to_csv('/Users/tli/Downloads/ecommerce/data/processed/5.merge_99quosoft.csv')
-
-## now merge temperature etc data from gsod:
+# renaming to merge with quosoft
 gsod.columns
 gsod = gsod.rename(columns={"日期": "date", 'CITYNAME':'cityname'})
-gsod
-gsod['date'] = pd.to_datetime(gsod['date'], format='%Y-%m-%d')
 
-gsod['year'] = gsod['date'].dt.year
-gsod['month'] = gsod['date'].dt.month
-gsod['day'] = gsod['date'].dt.day
-gsod = gsod[(gsod['year'] == 2016) | (gsod['year'] == 2017)]
-
-# obtain cityname: since gsod name cities differently from quosoft and city99
+# aligning the date formating with quosoft
+gsod['date'] = gsod['date'].str.replace('-', '')
 gsod['cityname'] = gsod['cityname'].str.replace('市', '')
-gsod['cityname'] = gsod['cityname'].str.replace('地区', '')
-gsod['cityname'] = gsod['cityname'].replace({
-    "伊犁哈萨克自治州": "伊犁", "克孜勒苏柯尔克孜自治州": "克孜勒苏",
-    "凉山彝族自治州": "凉山", "博尔塔拉蒙古自治州": "博尔塔拉",
-    "大理白族自治州": "大理",  "巴音郭楞蒙古自治州": "巴音郭楞", "延边朝鲜族自治州": "延边",
-    "德宏傣族景颇族自治州": "德宏", "恩施土家族苗族自治州": "恩施", "文山壮族苗族自治州": "文山",
-    "昌吉回族自治州": "昌吉", "果洛藏族自治州": "果洛","楚雄彝族自治州": "楚雄",
-    "海北藏族自治州": "海北", "海南藏族自治州": "海南",
-    "海西蒙古族藏族自治州": "海西", "玉树藏族自治州": "玉树","甘南藏族自治州": "甘南",
-    "甘孜藏族自治州": "甘孜", "红河哈尼族彝族自治州": "红河",
-    "西双版纳傣族自治州": "西双版纳","迪庆藏族自治州": "迪庆",
-    "阿坝藏族羌族自治州": "阿坝", "黄南藏族自治州": "黄南","黔东南苗族侗族自治州": "黔东南",
-    "黔南布依族苗族自治州": "黔南", "黔西南布依族苗族自治州": "黔西南"
-}, regex=True)
+set(gsod['cityname'].unique())
+gsod['cityname'].replace('伊犁哈萨克自治州', '伊犁', inplace=True)
 
-gsod_drop = ['平均露点.1','平均风速', '平均风速属性', '最大持续风速', '最大阵风'] # gsod_ave has taken 平均露点.1 twice, fixed code on 3.merge county_daily
-gsod = gsod.drop(columns=gsod_drop)
+# type align:
+gsod['date'] = gsod['date'].astype('int64')
 
-gsod_quosoft_99= gsod.merge(quosoft99, on=['cityname','year','month','day','date'],how='inner')
-gsod_quosoft_99['cityname'].nunique() #73 cities left.
-set1 = set(quosoft99['cityname'].unique())
-set2 = set(gsod['cityname'].unique())
-set1 - set2 # cities in quosoft99 but not in gsod
+# merge
+gsod_quosoft_99 = pd.merge(quosoft99, gsod, on=['cityname', 'date'],how='left')
+# city not in gsod
+# set(quosoft99['cityname'].unique()) - set(gsod['cityname'].unique())
 
-### merge to include surf data
-windir_201610 = pd.read_csv("/Users/tli/Downloads/ecommerce/surf_06风向风速/SURF_CLI_CHN_MUL_DAY-WIN-11002-201610.TXT", delim_whitespace=True, header=None)
-windir_201611 = pd.read_csv("/Users/tli/Downloads/ecommerce/surf_06风向风速/SURF_CLI_CHN_MUL_DAY-WIN-11002-201611.TXT",delim_whitespace=True,header=None)
-windir_201710 = pd.read_csv("/Users/tli/Downloads/ecommerce/surf_06风向风速/SURF_CLI_CHN_MUL_DAY-WIN-11002-201710.TXT",delim_whitespace=True,header=None)
-windir_201711 = pd.read_csv("/Users/tli/Downloads/ecommerce/surf_06风向风速/SURF_CLI_CHN_MUL_DAY-WIN-11002-201711.TXT",delim_whitespace=True,header=None)
-windir_201810 = pd.read_csv("/Users/tli/Downloads/ecommerce/surf_06风向风速/SURF_CLI_CHN_MUL_DAY-WIN-11002-201810.TXT",delim_whitespace=True,header=None)
-windir_201811 = pd.read_csv("/Users/tli/Downloads/ecommerce/surf_06风向风速/SURF_CLI_CHN_MUL_DAY-WIN-11002-201811.TXT",delim_whitespace=True,header=None)
-windir_201910 = pd.read_csv("/Users/tli/Downloads/ecommerce/surf_06风向风速/SURF_CLI_CHN_MUL_DAY-WIN-11002-201910.TXT",delim_whitespace=True,header=None)
-windir_201911 = pd.read_csv("/Users/tli/Downloads/ecommerce/surf_06风向风速/SURF_CLI_CHN_MUL_DAY-WIN-11002-201911.TXT",delim_whitespace=True,header=None)
+# export 
+gsod_quosoft_99.to_csv('/Users/tli/Downloads/ecommerce/data/processed/5.final_gsod_quosoft99.csv', index=False)
 
-# List of DataFrames to concatenate
-df = [windir_201610, windir_201611, windir_201710, windir_201711, windir_201810, windir_201811, windir_201910, windir_201911]
+### merge with surf data: 
+file_name = '/Users/tli/Downloads/ecommerce/surf_06风向风速/SURF_CLI_CHN_MUL_DAY-WIN-11002-{}{:02d}.TXT'
 
-# Concatenate DataFrames
-windir_all = pd.concat(df, ignore_index=True)
+# loading data
+wind_list = []
+for year in range(2016,2020):
+    for month in range(1,13):
+        file_path = file_name.format(year,month)
+        wind_list.append(pd.read_csv(file_path,delim_whitespace=True, header=None))
+wind_list
+surf = pd.concat(wind_list, ignore_index=True )
+
+# assigning colnames
 column_names = ['区站号', 'lat', 'lon', '观测场拔海高度', 'year', 'month', 'day', '平均风速', '最大风速', '最大风速的风向',
                 '极大风速', '极大风速的风向', '平均风速质量控制码', '最大风速质量控制码', '最大风速的风向质量控制码',
                 '极大风速质量控制码', '极大风速的风向质量控制码']
-windir_all.columns = column_names
+surf.columns = column_names
+
 id_lists = pd.read_excel("/Users/tli/Downloads/ecommerce/surf_数据说明/站点信息.xlsx")
 # merge with id for city names matching with observed site's id
-winddir_plus_citynames = windir_all.merge(id_lists[['区站号','省', '地市']], on='区站号', how='left')
-winddir_plus_citynames.columns
+surf_city = surf.merge(id_lists[['区站号','省', '地市']], on='区站号', how='left')
+surf_city.columns
 
-# compute the daily ave for wind data
-winddir_filtered = winddir_plus_citynames.groupby(['省', '地市','year', 'month', 'day']).median().reset_index()
-winddir_filtered.drop_duplicates() # keep the unique samples
+# obtain daily median obs at city level
+surf_median = surf_city.groupby(['省', '地市','year', 'month', 'day']).median().reset_index()
+surf_median['地市'] = surf_median['地市'].str.replace('市', '', regex=True)
+set(surf_median['地市'].unique())
+surf_median['地市'].replace('伊犁哈萨克自治州', '伊犁', inplace=True)
 
-winddir_filtered['地市'] = winddir_filtered['地市'].str.replace('市', '', regex=True)
-winddir_filtered['地市'] = winddir_filtered['地市'].str.replace('地区', '', regex=True)
-winddir_plus_citynames['地市'] = winddir_plus_citynames['地市'].replace({
-    "伊犁哈萨克自治州": "伊犁", "克孜勒苏柯尔克孜自治州": "克孜勒苏",  "凉山彝族自治州": "凉山",
-    "博尔塔拉蒙古自治州": "博尔塔拉", "大理白族自治州": "大理",
-    "巴音郭楞蒙古自治州": "巴音郭楞",    "延边朝鲜族自治州": "延边",
-    "德宏傣族景颇族自治州": "德宏",    "恩施土家族苗族自治州": "恩施",
-    "文山壮族苗族自治州": "文山",    "昌吉回族自治州": "昌吉",
-    "果洛藏族自治州": "果洛",    "楚雄彝族自治州": "楚雄",
-    "海北藏族自治州": "海北",    "海南藏族自治州": "海南",
-    "海西蒙古族藏族自治州": "海西",    "玉树藏族自治州": "玉树",
-    "甘南藏族自治州": "甘南",    "甘孜藏族自治州": "甘孜",
-    "红河哈尼族彝族自治州": "红河",    "西双版纳傣族自治州": "西双版纳",
-    "迪庆藏族自治州": "迪庆",    "阿坝藏族羌族自治州": "阿坝",
-    "黄南藏族自治州": "黄南",    "黔东南苗族侗族自治州": "黔东南",
-    "黔南布依族苗族自治州": "黔南",    "黔西南布依族苗族自治州": "黔西南"
-}, regex=True)
+# all cities in 99city is included in surf. 
+set(gsod_quosoft_99['cityname'].unique()) - set(surf_median['地市'].unique())
 
-## data type coherent to merge with 99city_gsod_quosoft
-winddir_filtered['year'] = winddir_filtered['year'].astype(int)
-winddir_filtered['month'] = winddir_filtered['month'].astype(int)
-winddir_filtered.rename(columns={'地市': 'cityname'}, inplace=True)
+# formating date
+surf_median['date'] = pd.to_datetime(surf_median[['year', 'month', 'day']], format='%Y%m%d',errors='ignore')
+surf_median = surf_median[surf_median['date'] <= 20191231]
 
-windcolumnsdrop = ['省','区站号']
-winddir_filtered = winddir_filtered.drop(columns=windcolumnsdrop)
+# merge
+surf_gsod_quosoft_99 = pd.merge(gsod_quosoft_99, surf_median, left_on=['cityname', 'date'], right_on= ['地市','date'],how='left')
+surf_gsod_quosoft_99.to_csv('/Users/tli/Downloads/ecommerce/data/processed/5.final_surf_gsod_quosoft99.csv', index=False)
 
-# merge:
-surf_gsod_quosoft_99 = winddir_filtered.merge(gsod_quosoft_99, on=['cityname','year','month','day'],how='inner')
-surf_gsod_quosoft_99
-surf_gsod_quosoft_99.to_csv('/Users/tli/Downloads/ecommerce/data/processed/5.merge_py_73city.csv')
+# end
