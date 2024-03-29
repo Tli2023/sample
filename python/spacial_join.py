@@ -3,15 +3,14 @@ import pandas as pd
 import geopandas as gpd
 
 ## appending: 
+dfs = []
+# a simple code to loop the year: 
+for year in [2016, 2017, 2018, 2019, 2020, 2021]:
+    # Construct the file path for each year
+    filepath = f"/Users/tli/Downloads/{year}GSOD.csv"
+    dfs.append(pd.read_csv(filepath))
 
-gsod2016 = pd.read_csv("/Users/tli/Downloads/2016年GSOD气象站点数据.csv")
-gsod2017 = pd.read_csv("/Users/tli/Downloads/2017年GSOD气象站点数据.csv")
-gsod2018 = pd.read_csv("/Users/tli/Downloads/2018年GSOD气象站点数据.csv")
-gsod2019 = pd.read_csv("/Users/tli/Downloads/2019年GSOD气象站点数据.csv")
-gsod2020 = pd.read_csv("/Users/tli/Downloads/2020年GSOD气象站点数据.csv")
-gsod2021 = pd.read_csv("/Users/tli/Downloads/2021年GSOD气象站点数据.csv")
-gsod = pd.concat([gsod2016, gsod2017, gsod2018, gsod2019, gsod2020,gsod2021], ignore_index=True)
-gsod['气象站名称'].head()
+gsod = pd.concat(dfs, ignore_index=True)
 
 gsod['ctry_filter'] = gsod['气象站名称'].str.split(',').str[1].str.strip()
 gsod['ctry_filter'].head()
