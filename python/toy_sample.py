@@ -3,15 +3,7 @@
 # author: tong LI
 # email: tong.li1@sciencespo.fr
 
-import requests 
-import pandas as pd
-import geopandas as gpd 
-import time
-from functools import reduce
-
 # a sample code merging api data to crowsswalks:
-# obtaining median value for house as an index:
-
 import requests 
 import pandas as pd
 import time
