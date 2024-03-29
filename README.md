@@ -1,5 +1,5 @@
 # sample 
-This file includes some demonstration of my coding ability in R, STATA, and python (Geopandas); (my strength is more on STATA and Python)
+This file includes some demonstration of my coding ability in R, STATA, and python (Geopandas);
 
 My general research interest lies in urbaneconomics, thus code uploaded are related to spatial join, merge, and some data cleaning.
 
