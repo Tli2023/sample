@@ -1,7 +1,12 @@
 /* -----------
 objective: a compressed coding sample including data cleaning and regressing work on STATA
+
+NB: This code have been derived from my old coding projects. Prior data cleaning process have been deliberately omitted for clarity. 
+
 author: Tong LI 
 email: tong.li1@sciencespo.fr
+last updated: Apr.4 
+	update notes: include a piece of IV reg from thesis , look for apr.4 to locate the changes
 date created: mar.29
 
 --------------*/
@@ -116,5 +121,72 @@ use total_measure_year/2016_`measure'_all.dta, clear
 twoway (scatter stderr estimate if parm == "treat" & p <= 0.05, msymbol(x))  (scatter stderr estimate if parm == "treat" & p > 0.05 , msymbol(+) ),  ytitle(`"se"') xtitle(`"treat coef on % `measure' "') xline(0, lwidth(thin) lpattern(solid) lcolor(red)) title(`"`measure' 2016 "') legend( label (2 "p>0.05") label (1 "p<=0.05"))
 graph export "${data}/graph/2016_`measure'.png", replace
 }
+
+** some regression ** update apr.4
+*** this code has been taken from my thesis on a IV reg ****
+xtset tract year
+
+* tot income 1 year growth rate:
+bysort tract: gen lag_totinc = L.b19313_001e
+bysort tract: gen g_totinc = ((b19313_001e - lag_totinc) / lag_totinc) * 100
+
+* median range: 
+bysort year: egen g_median_totinc = median(g_totinc)
+
+* tot income lag 2 year growth rate:
+bysort tract: gen lag2_totinc = L2.b19313_001e
+bysort tract: gen g2_totinc = ((b19313_001e - lag2_totinc) / lag2_totinc) * 100
+
+***********************
+* generating the treatment variable  
+***********************
+*************************
+*per capita treatment: 
+************************
+*** generate treatment for per capita income:
+capture drop inc3yr 
+gen inc3yr = 0
+
+* Loop through each starting year of the 3-year windows from 2010 to 2019
+foreach yr of numlist 2010/2019 {
+    local endYr = `yr' + 2  // End year of the 3-year window
+    local treatYr = `yr' + 3  // Year to check for an income increase
+
+    * Identify tracts below the median income during the 3-year window
+    gen below_`yr' = 0
+    bysort tract: replace below_`yr' = 1 if g_capitainc < g_median_capitainc & inlist(year, `yr', `yr'+1, `endYr')
+
+    * Count the occurrences of being below the median income over the 3-year window
+    egen below_flag_`yr' = total(below_`yr'), by(tract)
+
+    * Assign treatment based on income increase in the year following the 3-year window
+    gen treat_inc`treatYr' = 0
+    bysort tract: replace treat_inc`treatYr' = 1 if g_capitainc >= g_median_capitainc & year == `treatYr' & below_flag_`yr' == 3
+
+    * Update the cumulative treatment variable
+    replace inc3yr = inc3yr + treat_inc`treatYr'
+}
+tab inc3yr
+drop below_* below_flag_* 
+
+* with inc3yr *
+global controls densityblack rent3 rent2 rent1 edu1 edu2 edu3 relocate stay employ pop_youth
+
+*significant*
+// global controls densityblack edu1 edu2 edu3 relocate stay employ pop_youth
+ivregress 2sls den_crime_person (inc3yr= i.water) $controls  i.year, vce(cluster tract)
+ivregress 2sls den_crime_property (inc3yr =i.water) $controls  i.year, vce(cluster tract)
+ivregress 2sls den_crime_tot (inc3yr = i.water) $controls  i.year, vce(cluster tract)
+
+
+** winsoring **
+preserve 
+sum b19301_001e,d
+return list
+drop if b19301_001e > r(p75) //significant
+ivregress 2sls den_crime_person (inc3yr= i.water) $controls  i.year, vce(cluster tract)
+ivregress 2sls den_crime_property (inc3yr =i.water) $controls  i.year, vce(cluster tract)
+ivregress 2sls den_crime_tot (inc3yr = i.water) $controls  i.year, vce(cluster tract)
+restore
 
 ** this is the end of the documents **
