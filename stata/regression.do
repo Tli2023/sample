@@ -1,6 +1,7 @@
-*************************
-******Data Excercise*****
-******Li Tong************
+************************
+* OLS code, exporting to latex
+* Author: Tong LI
+* date created: Sep.29, 2023
 *************************
 
 global dir "~/Downloads/excercise"
